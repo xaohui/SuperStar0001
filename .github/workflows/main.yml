@@ -34,18 +34,18 @@ jobs:
           notopen_action = continue
           
           [tiku]
-          # 使用AI题库（Kimi）
+          # 使用AI题库（DeepSeek）
           provider = AI
           
-          # Kimi API配置
-          endpoint = https://api.moonshot.cn/v1
-          key = ${{ secrets.KIMI_API_KEY }}
-          model = moonshot-v1-8k
+          # DeepSeek API配置
+          endpoint = https://api.deepseek.com/v1
+          key = ${{ secrets.DEEPSEEK_API_KEY }}
+          model = deepseek-chat
           http_proxy = 
           min_interval_seconds = 3
           
           # 通用配置
-          delay = 2.0
+          delay = 1.0
           cover_rate = 0.95
           disable = false
           submit = true
@@ -60,13 +60,13 @@ jobs:
           # 安全显示配置内容（隐藏敏感信息）
           cat config.ini | grep -v -E "(password|key) = " || true
       
-      - name: 运行刷课脚本（使用Kimi进行自动答题）
+      - name: 运行刷课脚本（先看视频再自动答题）
         env:
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
-          KIMI_API_KEY: ${{ secrets.KIMI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           echo "开始执行刷课任务..."
-          echo "流程：登录 → 获取课程 → 观看视频 → 使用Kimi自动答题 → 完成章节"
+          echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
           python main.py -c config.ini
           echo "刷课任务完成"
