@@ -34,26 +34,15 @@ jobs:
           notopen_action = continue
           
           [tiku]
-          # 使用言溪题库
-          provider = YANXI
+          # 使用AI题库（DeepSeek）
+          provider = AI
           
-          # 言溪题库API配置
-          endpoint = https://tk.enncy.cn/query
-          method = get
-          key = ${{ secrets.YANXI_TOKEN }}
-          content_type = json
-          
-          # 请求参数映射
-          param_title = title
-          param_options = options
-          param_type = type
-          param_token = token
-          
-          # 响应处理配置
-          success_code = 0
-          answer_field = data.answer
-          question_field = data.question
-          ai_field = data.ai
+          # DeepSeek API配置
+          endpoint = https://api.deepseek.com/v1
+          key = ${{ secrets.DEEPSEEK_API_KEY }}
+          model = deepseek-chat
+          http_proxy = 
+          min_interval_seconds = 3
           
           # 通用配置
           delay = 1.0
@@ -69,15 +58,15 @@ jobs:
           
           echo "配置文件创建完成"
           # 安全显示配置内容（隐藏敏感信息）
-          cat config.ini | grep -v -E "(password|key|token) = " || true
+          cat config.ini | grep -v -E "(password|key) = " || true
       
-      - name: 运行刷课脚本（使用言溪题库自动答题）
+      - name: 运行刷课脚本（先看视频再自动答题）
         env:
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
-          YANXI_TOKEN: ${{ secrets.YANXI_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           echo "开始执行刷课任务..."
-          echo "流程：登录 → 获取课程 → 观看视频 → 使用言溪题库自动答题 → 完成章节"
+          echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
           python main.py -c config.ini
           echo "刷课任务完成"
