@@ -620,3 +620,114 @@ class SiliconFlow(Tiku):
 
 
         self.min_interval = int(self._conf.get('min_interval_seconds', 3))
+class SmartTiku(Tiku):
+    """智能题库策略：言溪题库优先，AI题库备用"""
+    def __init__(self):
+        super().__init__()
+        self.name = '智能题库(言溪+AI)'
+        self.primary_tiku = None  # 主题库：言溪
+        self.fallback_tiku = None  # 备用题库：AI
+        self.fallback_enabled = True
+        self.timeout = 10
+        self.retry_times = 2
+
+    def _init_tiku(self):
+        """初始化主备题库"""
+        try:
+            # 初始化言溪题库（主）
+            self.primary_tiku = TikuYanxi()
+            self.primary_tiku.config_set(self._conf)
+            self.primary_tiku.init_tiku()
+            logger.info("✅ 言溪题库初始化成功")
+        except Exception as e:
+            logger.error(f"❌ 言溪题库初始化失败: {e}")
+            self.primary_tiku = None
+
+        try:
+            # 初始化AI题库（备）
+            self.fallback_tiku = AI()
+            self.fallback_tiku.config_set(self._conf)
+            self.fallback_tiku.init_tiku()
+            logger.info("✅ AI题库初始化成功")
+        except Exception as e:
+            logger.error(f"❌ AI题库初始化失败: {e}")
+            self.fallback_tiku = None
+
+        # 读取智能策略配置
+        self.fallback_enabled = self._conf.getboolean('tiku', 'fallback_enabled', fallback=True)
+        self.timeout = self._conf.getint('tiku', 'timeout', fallback=10)
+        self.retry_times = self._conf.getint('tiku', 'retry_times', fallback=2)
+
+        if not self.primary_tiku and not self.fallback_tiku:
+            logger.error("❌ 所有题库初始化失败，智能题库将禁用")
+            self.DISABLE = True
+
+    def _query(self, q_info: dict):
+        """智能查询策略：言溪优先，AI备用"""
+        answer = None
+        
+        # 第一步：尝试言溪题库（主）
+        if self.primary_tiku and not self.primary_tiku.DISABLE:
+            logger.info("🔍 正在使用言溪题库查询...")
+            try:
+                answer = self.primary_tiku._query(q_info)
+                if answer and self._is_valid_answer(answer):
+                    logger.info("✅ 言溪题库找到有效答案")
+                    return answer
+                else:
+                    logger.info("❌ 言溪题库未找到答案或答案无效")
+            except Exception as e:
+                logger.error(f"言溪题库查询异常: {e}")
+
+        # 第二步：如果启用备用策略，尝试AI题库
+        if self.fallback_enabled and self.fallback_tiku and not self.fallback_tiku.DISABLE:
+            logger.info("🔍 言溪题库无结果，尝试AI题库...")
+            try:
+                answer = self.fallback_tiku._query(q_info)
+                if answer and self._is_valid_answer(answer):
+                    logger.info("✅ AI题库找到有效答案")
+                    return answer
+                else:
+                    logger.info("❌ AI题库未找到答案或答案无效")
+            except Exception as e:
+                logger.error(f"AI题库查询异常: {e}")
+
+        # 所有题库都未找到答案
+        logger.error("❌ 所有题库均未找到有效答案")
+        return None
+
+    def _is_valid_answer(self, answer):
+        """验证答案是否有效"""
+        if not answer or not answer.strip():
+            return False
+        
+        # 排除常见的无效答案提示
+        invalid_patterns = [
+            "未找到答案", "查询失败", "次数不足", "错误", "失败", 
+            "不知道", "不清楚", "无法回答", "sorry", "抱歉"
+        ]
+        
+        answer_lower = answer.lower()
+        for pattern in invalid_patterns:
+            if pattern in answer_lower:
+                return False
+        
+        return True
+
+    def judgement_select(self, answer: str) -> bool:
+        """判断题答案选择（继承主题库的设置）"""
+        if self.primary_tiku:
+            return self.primary_tiku.judgement_select(answer)
+        elif self.fallback_tiku:
+            return self.fallback_tiku.judgement_select(answer)
+        else:
+            return super().judgement_select(answer)
+
+    def get_submit_params(self):
+        """提交参数设置（继承主题库的设置）"""
+        if self.primary_tiku:
+            return self.primary_tiku.get_submit_params()
+        elif self.fallback_tiku:
+            return self.fallback_tiku.get_submit_params()
+        else:
+            return super().get_submit_params()
