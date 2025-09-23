@@ -1,28 +1,100 @@
-name: 刷课
- 
-on: 
+name: 智能刷课
+
+on:
   push:
-    branches: [ main ]
-  #是否开始每天8点定时刷课，若要开启请把下面两行注释去掉
-  #schedule:
-  #  - cron: "0 8 * * *" 
-    
-jobs: 
+    branches: [main]
+  schedule:
+    - cron: "0 8 * * *"
+
+jobs:
   Start:
-    runs-on: ubuntu-latest # 在最新版本的 Ubuntu 操作系统环境下运行
-    steps: # 要执行的步骤
+    runs-on: ubuntu-latest
+    steps:
       - name: 拷贝代码
-        uses: actions/checkout@v3  # 用于将github代码仓库的代码拷贝到工作目录中
- 
-      - name: 设置python环境
-        uses: actions/setup-python@v2 # 用于设置 Python 环境，它允许你指定要在工作环境中使用的 Python 版本
+        uses: actions/checkout@v3
+
+      - name: 设置 python 环境
+        uses: actions/setup-python@v2
         with:
-          python-version: '3.9'  # 选择要用的Python版本
- 
+          python-version: "3.10"
+
       - name: 安装依赖包
-        run: | # 安装依赖包
-          pip install -r ./requirements.txt 
-          
-      
-      - name: Run main.py
-        run: python main.py -u 学习通账号 -p 学习通密码 -l 244403509 #课程id，默认为心理课的
+        run: |
+          pip install -r ./requirements.txt
+
+      - name: 创建智能题库配置文件
+        run: |
+          # 创建配置文件
+          cat > config.ini <<'EOF'
+          [common]
+          username = ${{ secrets.USERNAME }}
+          password = ${{ secrets.PASSWORD }}
+          course_list = 255731372
+          speed = 2.0
+          notopen_action = continue
+
+          [tiku]
+          provider = SmartTiku
+
+          # 言溪题库配置（主要）
+          yanxi_api_url = https://api.yanxitiku.cn/api/v1
+          yanxi_token = ${{ secrets.YANXI_TOKEN }}
+          yanxi_priority = 1
+          yanxi_enabled = true
+
+          # DeepSeek API 配置（备用）
+          endpoint = https://api.deepseek.com/v1
+          key = ${{ secrets.DEEPSEEK_API_KEY }}
+          model = deepseek-chat
+          deepseek_priority = 2
+          deepseek_enabled = true
+          http_proxy =
+          min_interval_seconds = 3
+
+          # 智能题库策略配置
+          fallback_enabled = true
+          timeout = 10
+          retry_times = 2
+
+          # 通用配置
+          delay = 1.0
+          cover_rate = 0.95
+          disable = false
+          submit = true
+          tiku_path = ./api/data/tiku.json
+
+          # 判断题选项
+          true_list = 正确,对,是,true,True,是,对,正确,√,T,t,1
+          false_list = 错误,错,否,false,False,错,错误,×,F,f,0
+          EOF
+
+          echo "智能题库配置文件创建完成"
+
+          # 安全显示配置内容（隐藏敏感信息）
+          grep -Ev '(password|token|key) =' config.ini || true
+
+          # 显示配置文件结构验证
+          echo "=== 配置文件结构验证 ==="
+          python -c "
+          import configparser, sys
+          cfg = configparser.ConfigParser()
+          cfg.read('config.ini')
+          print('配置节:', cfg.sections())
+          if 'tiku' in cfg:
+              print('题库提供商:', cfg['tiku'].get('provider', '未设置'))
+              print('言溪启用:', cfg['tiku'].get('yanxi_enabled', '未设置'))
+              print('DeepSeek 启用:', cfg['tiku'].get('deepseek_enabled', '未设置'))
+          "
+
+      - name: 运行智能刷课脚本
+        env:
+          USERNAME: ${{ secrets.USERNAME }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+          YANXI_TOKEN: ${{ secrets.YANXI_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          echo "开始执行智能刷课任务..."
+          echo "智能题库策略：言溪题库(优先) → 若未找到答案 → DeepSeek AI(备用)"
+          echo "流程：登录 → 获取课程 → 观看视频 → 智能答题 → 完成章节"
+          python main.py -c config.ini
+          echo "智能刷课任务完成"
