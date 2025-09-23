@@ -1,4 +1,4 @@
-name: 智能刷课
+name: 刷课
 
 on:
   push:
