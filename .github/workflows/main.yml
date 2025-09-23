@@ -30,7 +30,7 @@ jobs:
           username = ${{ secrets.USERNAME }}
           password = ${{ secrets.PASSWORD }}
           course_list = 255731372
-          speed = 10.0
+          speed = 1.099999999999
           notopen_action = continue
           
           [tiku]
