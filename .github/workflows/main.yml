@@ -60,7 +60,7 @@ jobs:
           # 安全显示配置内容（隐藏敏感信息）
           cat config.ini | grep -v -E "(password|key) = " || true
       
-      - name: 运行刷课脚本（先看视频再自动答题）
+      - name: 运行刷课脚本（带间隔刷课）
         env:
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
@@ -68,28 +68,27 @@ jobs:
         run: |
           echo "开始执行刷课任务..."
           echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
-          python main.py -c config.ini
-          echo "刷课任务完成"
-def safe_post(url, headers, data, proxies=None, max_retries=5, sleep_sec=10):
-    """
-    发送POST请求，遇到403自动重试，异常也自动延迟重试。
-    参数：
-        url: https://mooc2-ans.chaoxing.com/mooc2-ans/mycourse/stu?courseid=255731372&clazzid=128764716&cpi=482985394&enc=1825dd07b151fbf42910770fd8c14aa5&t=1758636099751&pageHeader=1
-        max_retries: 5
-        sleep_sec: 10
-    返回：
-        requests.Response 对象 或 None（多次403/异常后放弃）
-    """
-    for attempt in range(max_retries):
-        try:
-            resp = requests.post(url, headers=headers, json=data, proxies=proxies, timeout=30)
-            if resp.status_code == 403:
-                print(f'[警告] 403 Forbidden ({attempt+1}/{max_retries})，等待{sleep_sec}秒后重试')
-                time.sleep(sleep_sec)
-            else:
-                return resp
-        except Exception as e:
-            print(f'[异常] 请求失败: {e} ({attempt+1}/{max_retries})，等待{sleep_sec}秒后重试')
-            time.sleep(sleep_sec)
-    print('[错误] 连续多次403或请求失败，任务终止！')
-    return None
+          
+          # 设置课程列表（可以根据需要修改）
+          COURSES=("255731372" )
+          
+          # 循环处理每门课程
+          for course_id in "${COURSES[@]}"; do
+            echo "开始处理课程: $course_id"
+            
+            # 更新配置文件中的课程ID
+            sed -i "s/course_list = .*/course_list = $course_id/" config.ini
+            
+            # 运行刷课脚本
+            python main.py -c config.ini
+            
+            echo "课程 $course_id 处理完成"
+            
+            # 如果不是最后一门课，等待3分钟
+            if [ "$course_id" != "${COURSES[-1]}" ]; then
+              echo "等待3分钟，准备下一门课程..."
+              sleep 180  # 180秒 = 3分钟
+            fi
+          done
+          
+          echo "所有课程刷课任务完成"
