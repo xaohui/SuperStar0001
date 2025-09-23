@@ -1,72 +1,111 @@
-name: 刷课
+import time
+import random
+import requests
+import configparser
+import os
 
-on: 
-  push:
-    branches: [ main ]  
-  schedule:
-    - cron: "0 8 * * *"
+def load_config(config_path):
+    config = configparser.ConfigParser()
+    config.read(config_path, encoding='utf-8')
+    return config
 
-jobs: 
-  Start:
-    runs-on: ubuntu-latest
-    steps:
-      - name: 拷贝代码
-        uses: actions/checkout@v3
+def get_proxy(config):
+    proxy = ""
+    if config.has_option('tiku', 'http_proxy'):
+        proxy = config.get('tiku', 'http_proxy')
+    if proxy:
+        return {'http': proxy, 'https': proxy}
+    return None
 
-      - name: 设置python环境
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.10'
+def get_headers():
+    return {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 Chrome/115.0.0.0 Safari/537.36"
+    }
 
-      - name: 安装依赖包
-        run: |
-          pip install -r ./requirements.txt 
-      
-      - name: 创建题库配置文件
-        run: |
-          # 创建配置文件
-          cat > config.ini << EOF
-          [common]
-          username = ${{ secrets.USERNAME }}
-          password = ${{ secrets.PASSWORD }}
-          course_list = 255731372
-          speed = 1.0
-          notopen_action = continue
-          
-          [tiku]
-          # 使用AI题库（DeepSeek）
-          provider = AI
-          
-          # DeepSeek API配置
-          endpoint = https://api.deepseek.com/v1
-          key = ${{ secrets.DEEPSEEK_API_KEY }}
-          model = deepseek-chat
-          http_proxy = 
-          min_interval_seconds = 3
-          
-          # 通用配置
-          delay = 2.0
-          cover_rate = 0.95
-          disable = false
-          submit = true
-          tiku_path = ./api/data/tiku.json
-          
-          # 判断题选项
-          true_list = 正确,对,是,true,True,是,对,正确,√,T,t,1
-          false_list = 错误,错,否,false,False,错,错误,×,F,f,0
-          EOF
-          
-          echo "配置文件创建完成"
-          # 安全显示配置内容（隐藏敏感信息）
-          cat config.ini | grep -v -E "(password|key) = " || true
-      
-      - name: 运行刷课脚本（先看视频再自动答题）
-        env:
-          USERNAME: ${{ secrets.USERNAME }}
-          PASSWORD: ${{ secrets.PASSWORD }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-        run: |
-          echo "开始执行刷课任务..."
-          echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
-          python main.py -c config.ini
-          echo "刷课任务完成"
+def safe_post(url, headers, data, proxies=None, max_retries=5, sleep_sec=15):
+    for attempt in range(max_retries):
+        try:
+            resp = requests.post(url, headers=headers, json=data, proxies=proxies, timeout=30)
+            if resp.status_code == 403:
+                print(f"[警告] 403 Forbidden, 第{attempt+1}次重试，等待{sleep_sec}秒")
+                time.sleep(sleep_sec)
+            else:
+                return resp
+        except Exception as e:
+            print(f"[异常] 请求失败: {e}, 第{attempt+1}次重试，等待{sleep_sec}秒")
+            time.sleep(sleep_sec)
+    print("[错误] 连续多次403或请求失败，终止任务！")
+    return None
+
+def random_delay(min_sec, max_sec):
+    delay = random.uniform(min_sec, max_sec)
+    print(f"[提示] 随机延迟 {delay:.2f} 秒")
+    time.sleep(delay)
+
+def main():
+    config_path = 'config.ini'
+    if not os.path.exists(config_path):
+        print("[错误] 未找到配置文件 config.ini！")
+        return
+
+    config = load_config(config_path)
+    proxies = get_proxy(config)
+    headers = get_headers()
+
+    # 读取参数（与 workflow 保持一致）
+    username = config.get('common', 'username', fallback='')
+    password = config.get('common', 'password', fallback='')
+    course_list = config.get('common', 'course_list', fallback='')
+    speed = config.getfloat('common', 'speed', fallback=1.0)
+    notopen_action = config.get('common', 'notopen_action', fallback='continue')
+
+    provider = config.get('tiku', 'provider', fallback='AI')
+    endpoint = config.get('tiku', 'endpoint', fallback='https://api.deepseek.com/v1')
+    api_key = config.get('tiku', 'key', fallback='')
+    model = config.get('tiku', 'model', fallback='deepseek-chat')
+    min_interval = config.getfloat('tiku', 'min_interval_seconds', fallback=3.0)
+    delay = config.getfloat('tiku', 'delay', fallback=2.0)
+    cover_rate = config.getfloat('tiku', 'cover_rate', fallback=0.95)
+    disable = config.getboolean('tiku', 'disable', fallback=False)
+    submit = config.getboolean('tiku', 'submit', fallback=True)
+    tiku_path = config.get('tiku', 'tiku_path', fallback='./api/data/tiku.json')
+    true_list = [s.strip() for s in config.get('tiku', 'true_list', fallback='正确,对,是,true,True,是,对,正确,√,T,t,1').split(',')]
+    false_list = [s.strip() for s in config.get('tiku', 'false_list', fallback='错误,错,否,false,False,错,错误,×,F,f,0').split(',')]
+
+    print(f"[流程] 登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节")
+    print(f"[参数] 用户名: {username} | 课程: {course_list} | 倍速: {speed} | provider: {provider}")
+    print(f"[参数] API模型: {model} | endpoint: {endpoint} | 答题延迟: {delay}s | 间隔: {min_interval}s")
+
+    # 实际课程列表支持逗号分隔，示例模拟
+    for course_id in course_list.split(','):
+        course_id = course_id.strip()
+        if not course_id:
+            continue
+        print(f"[进度] 开始处理课程 {course_id} ...")
+        # 观看视频流程（可根据speed倍速调整实际观看时间）
+        random_delay(min_interval, min_interval + delay)
+
+        # 自动答题流程（示例结构，实际请根据你的题库API补充题目内容）
+        question_data = {
+            "model": model,
+            "question": f"课程 {course_id} 的示例问题文本",
+            "api_key": api_key,
+            # 其他必需字段可在此补充
+        }
+        resp = safe_post(endpoint, headers, question_data, proxies, max_retries=5, sleep_sec=15)
+        if resp is None:
+            print(f"[错误] 课程 {course_id} 答题失败，跳过")
+            continue
+        if resp.status_code == 200:
+            print(f"[成功] 课程 {course_id} 答题完成，返回内容：{resp.json()}")
+        else:
+            print(f"[失败] 课程 {course_id} 答题，状态码：{resp.status_code}，内容：{resp.text}")
+
+        # 下一个课程前随机延迟
+        random_delay(min_interval, min_interval + delay)
+
+    print("[完成] 刷课任务全部结束！")
+
+if __name__ == "__main__":
+    main()
