@@ -30,7 +30,7 @@ jobs:
           username = ${{ secrets.USERNAME }}
           password = ${{ secrets.PASSWORD }}
           course_list = 255731372
-          speed = 1.0
+          speed = 2.0
           notopen_action = continue
           
           [tiku]
@@ -45,7 +45,7 @@ jobs:
           min_interval_seconds = 3
           
           # 通用配置
-          delay = 2.0
+          delay = 1.0
           cover_rate = 0.95
           disable = false
           submit = true
@@ -60,7 +60,7 @@ jobs:
           # 安全显示配置内容（隐藏敏感信息）
           cat config.ini | grep -v -E "(password|key) = " || true
       
-      - name: 运行刷课脚本（带间隔刷课）
+      - name: 运行刷课脚本（先看视频再自动答题）
         env:
           USERNAME: ${{ secrets.USERNAME }}
           PASSWORD: ${{ secrets.PASSWORD }}
@@ -68,8 +68,5 @@ jobs:
         run: |
           echo "开始执行刷课任务..."
           echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
-        
-            fi
-          done
-          
-          echo "所有课程刷课任务完成"
+          python main.py -c config.ini
+          echo "刷课任务完成"
