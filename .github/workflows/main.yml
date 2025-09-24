@@ -68,26 +68,7 @@ jobs:
         run: |
           echo "开始执行刷课任务..."
           echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
-          
-          # 设置课程列表（可以根据需要修改）
-          COURSES=("255731372" )
-          
-          # 循环处理每门课程
-          for course_id in "${COURSES[@]}"; do
-            echo "开始处理课程: $course_id"
-            
-            # 更新配置文件中的课程ID
-            sed -i "s/course_list = .*/course_list = $course_id/" config.ini
-            
-            # 运行刷课脚本
-            python main.py -c config.ini
-            
-            echo "课程 $course_id 处理完成"
-            
-            # 如果不是最后一门课，等待3分钟
-            if [ "$course_id" != "${COURSES[-1]}" ]; then
-              echo "等待3分钟，准备下一门课程..."
-              sleep 180  # 180秒 = 3分钟
+        
             fi
           done
           
