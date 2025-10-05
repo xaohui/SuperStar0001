@@ -29,7 +29,7 @@ jobs:
           [common]
           username = ${{ secrets.USERNAME }}
           password = ${{ secrets.PASSWORD }}
-          course_list = 255764368
+          course_list = 
           speed = 1.0
           notopen_action = continue
           
