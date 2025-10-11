@@ -403,3 +403,17 @@ def main():
 
 if __name__ == "__main__":
     main()
+[tiku]
+provider = AI
+endpoint = https://api.deepseek.com/v1
+key = ${{ secrets.DEEPSEEK_API_KEY }}
+model = deepseek-chat
+
+# 简答题专用配置
+essay_enabled = true
+essay_min_length = 50
+essay_timeout = 30
+essay_retry_times = 2
+
+# 提示词模板
+essay_prompt = 填写答案
