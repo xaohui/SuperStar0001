@@ -1,4 +1,4 @@
-name: 刷课
+name: 多账号刷课
 
 on: 
   push:
@@ -7,8 +7,14 @@ on:
     - cron: "0 8 * * *"
 
 jobs: 
-  Start:
+  MultiAccountStudy:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 在这里配置账号数量，对应 secrets 中的 USERNAME1, USERNAME2, USERNAME3
+        account: [1, 2]
+      max-parallel: 2  # 最大并行任务数，避免 API 频率限制
+    
     steps:
       - name: 拷贝代码
         uses: actions/checkout@v3
@@ -22,13 +28,13 @@ jobs:
         run: |
           pip install -r ./requirements.txt 
       
-      - name: 创建题库配置文件
+      - name: 为账号 ${{ matrix.account }} 创建配置文件
         run: |
-          # 创建配置文件
-          cat > config.ini << EOF
+          # 动态创建配置文件
+          cat > config_${{ matrix.account }}.ini << EOF
           [common]
-          username = ${{ secrets.USERNAME1 }}
-          password = ${{ secrets.PASSWORD1 }}
+          username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
+          password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
           course_list = 255731372
           speed = 1.0
           notopen_action = continue
@@ -56,17 +62,51 @@ jobs:
           false_list = 错误,错,否,false,False,错,错误,×,F,f,0
           EOF
           
-          echo "配置文件创建完成"
+          echo "账号 ${{ matrix.account }} 配置文件创建完成"
           # 安全显示配置内容（隐藏敏感信息）
-          cat config.ini | grep -v -E "(password|key) = " || true
+          echo "配置文件内容预览："
+          cat config_${{ matrix.account }}.ini | grep -v -E "(password|key) = " || true
       
-      - name: 运行刷课脚本（先看视频再自动答题）
+      - name: 运行刷课脚本 - 账号 ${{ matrix.account }}
         env:
-          USERNAME: ${{ secrets.USERNAME1 }}
-          PASSWORD: ${{ secrets.PASSWORD1 }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          echo "开始执行刷课任务..."
+          echo "开始执行账号 ${{ matrix.account }} 的刷课任务..."
           echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
-          python main.py -c config.ini
-          echo "刷课任务完成"
+          
+          # 为每个账号创建独立的日志文件
+          LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
+          
+          # 运行刷课脚本并记录日志
+          python main.py -c config_${{ matrix.account }}.ini 2>&1 | tee $LOG_FILE
+          
+          # 检查执行结果
+          if [ ${PIPESTATUS[0]} -eq 0 ]; then
+            echo "✅ 账号 ${{ matrix.account }} 刷课任务完成"
+          else
+            echo "❌ 账号 ${{ matrix.account }} 刷课任务失败"
+            # 上传日志文件作为产物，便于调试
+            echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+          fi
+      
+      - name: 上传失败日志（如果任务失败）
+        if: failure()
+        uses: actions/upload-artifact@v3
+        with:
+          name: failure-logs-account-${{ matrix.account }}
+          path: ${{ env.LOG_FILE }}
+          retention-days: 7
+
+  Summary:
+    runs-on: ubuntu-latest
+    needs: MultiAccountStudy
+    if: always()
+    steps:
+      - name: 任务执行总结
+        run: |
+          echo "多账号刷课任务执行完成"
+          echo "执行时间: $(date)"
+          echo "各账号执行状态:"
+          {{ range(1, 4) }}
+          echo "账号 $item: ${{ needs.MultiAccountStudy.result == 'success' && '✅ 成功' || '❌ 失败' }}"
+          {{ end }}
