@@ -27,8 +27,8 @@ jobs:
           # 创建配置文件
           cat > config.ini << EOF
           [common]
-          username = ${{ secrets.USERNAME }}
-          password = ${{ secrets.PASSWORD }}
+          username = ${{ secrets.USERNAME1 }}
+          password = ${{ secrets.PASSWORD1 }}
           course_list = 255731372
           speed = 1.0
           notopen_action = continue
