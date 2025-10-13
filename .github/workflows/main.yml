@@ -11,14 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        account: [1, 2]  # 只有2个账号
-        # 为每个账号定义不同的参数组合
+        account: [1, 2, 3]
         include:
           - account: 1
             delay: 0
           - account: 2
-            delay: 27
-      max-parallel: 2  # 并行执行两个账号
+            delay: 17
+          - account: 3
+            delay: 36
+      max-parallel: 3
     
     steps:
       - name: 拷贝代码
@@ -33,71 +34,72 @@ jobs:
         run: |
           pip install -r ./requirements.txt 
       
-      - name: 为账号 ${{ matrix.account }} 创建差异化配置
+      - name: 为账号 ${{ matrix.account }} 创建配置
         run: |
-          # 为每个账号生成随机行为参数
-          pause_min=$(( (RANDOM % 5) + 3 ))  # 3-7分钟
-          pause_max=$(( (RANDOM % 10) + 10 ))  # 10-19分钟
-          replay_chance=$(( (RANDOM % 11) + 5 ))  # 5-15%回看几率
+          # 生成随机行为参数
+          pause_min=$(( (RANDOM % 5) + 3 ))
+          pause_max=$(( (RANDOM % 10) + 10 ))
+          replay_chance=$(( (RANDOM % 11) + 5 ))
           
+          # 创建配置文件 - 确保所有数值参数都是纯数字
           cat > config_${{ matrix.account }}.ini << EOF
-          [common]
-          username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
-          password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
-          course_list = 255731372
-          speed = 1.0  # 固定学习速度
-          notopen_action = continue
-          
-          # 模拟人类行为参数（每个账号不同）
-          [behavior]
-          random_pause = true
-          pause_min_interval = $(( pause_min * 60 ))
-          pause_max_interval = $(( pause_max * 60 ))
-          replay_chance = $replay_chance
-          
-          # 禁用答题功能
-          [tiku]
-          disable = true
-          EOF
+[common]
+username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
+password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
+course_list = 255731372
+speed = 1.0
+notopen_action = continue
+
+[behavior]
+random_pause = true
+pause_min_interval = $(( pause_min * 60 ))
+pause_max_interval = $(( pause_max * 60 ))
+replay_chance = $replay_chance
+
+[tiku]
+disable = true
+EOF
           
           echo "账号 ${{ matrix.account }} 配置文件创建完成"
-          echo "暂停间隔: $pause_min-$pause_max 分钟"
-          echo "回看几率: $replay_chance%"
-          cat config_${{ matrix.account }}.ini | grep -v -E "(password|key) = " || true
+          echo "配置文件内容:"
+          cat config_${{ matrix.account }}.ini
       
-      - name: 延迟启动 - 账号 ${{ matrix.account }} 等待 ${{ matrix.delay }} 分钟
+      - name: 延迟启动 - 账号 ${{ matrix.account }}
         if: matrix.delay > 0
         run: |
           echo "账号 ${{ matrix.account }} 延迟 ${{ matrix.delay }} 分钟启动..."
           sleep $(( ${{ matrix.delay }} * 60 ))
-      
-      - name: 模拟每日学习时间差异
-        run: |
-          # 为每个账号生成不同的"每日学习时长"（2-5小时）
-          daily_study_hours=$(( (RANDOM % 4) + 2 ))
-          echo "账号 ${{ matrix.account }} 模拟每日学习 $daily_study_hours 小时"
-          echo "DAILY_STUDY_HOURS=$daily_study_hours" >> $GITHUB_ENV
       
       - name: 运行学习脚本 - 账号 ${{ matrix.account }}
         run: |
           echo "开始执行账号 ${{ matrix.account }} 的学习任务..."
           LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
           
-          python main.py -c config_${{ matrix.account }}.ini 2>&1 | tee $LOG_FILE
+          # 添加调试信息
+          echo "当前目录文件:"
+          ls -la
+          echo "配置文件内容:"
+          cat config_${{ matrix.account }}.ini
+          echo "Python版本:"
+          python --version
           
-          if [ ${PIPESTATUS[0]} -eq 0 ]; then
+          # 运行脚本并捕获详细日志
+          python main.py -c config_${{ matrix.account }}.ini 2>&1 | tee "$LOG_FILE"
+          
+          EXIT_CODE=${PIPESTATUS[0]}
+          if [ $EXIT_CODE -eq 0 ]; then
             echo "✅ 账号 ${{ matrix.account }} 学习任务完成"
           else
-            echo "❌ 账号 ${{ matrix.account }} 学习任务失败"
+            echo "❌ 账号 ${{ matrix.account }} 学习任务失败，退出码: $EXIT_CODE"
             echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+            exit $EXIT_CODE
           fi
       
-      - name: 上传失败日志（如果任务失败）
-        if: failure()
+      - name: 上传日志（无论成功或失败）
         uses: actions/upload-artifact@v4
         with:
-          name: failure-logs-account-${{ matrix.account }}
-          path: ${{ env.LOG_FILE }}
+          name: logs-account-${{ matrix.account }}
+          path: study_log_account_${{ matrix.account }}_*.txt
           retention-days: 7
 
   Summary:
@@ -107,10 +109,9 @@ jobs:
     steps:
       - name: 任务执行总结
         run: |
-          echo "双账号学习任务执行完成"
+          echo "三账号学习任务执行完成"
           echo "执行时间: $(date)"
-          echo "并行执行模式下，两账号差异包括："
-          echo "- 不同的启动延迟 (0分钟 vs 30分钟)"
-          echo "- 不同的暂停行为模式"
-          echo "- 不同的回看几率"
-          echo "- 模拟不同的每日学习时长"
+          echo "各账号启动延迟:"
+          echo "- 账号1: 0分钟"
+          echo "- 账号2: 17分钟" 
+          echo "- 账号3: 36分钟"
