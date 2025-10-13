@@ -16,10 +16,10 @@ jobs:
     
     steps:
       - name: 拷贝代码
-        uses: actions/checkout@v4 # 主要变更点
+        uses: actions/checkout@v4
 
       - name: 设置python环境
-        uses: actions/setup-python@v4 # 建议同步升级Python环境
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
@@ -37,29 +37,15 @@ jobs:
           speed = 1.0
           notopen_action = continue
           
+          # 禁用答题功能
           [tiku]
-          provider = AI
-          endpoint = https://api.deepseek.com/v1
-          key = ${{ secrets.DEEPSEEK_API_KEY }}
-          model = deepseek-chat
-          http_proxy = 
-          min_interval_seconds = 3
-          delay = 5.0
-          cover_rate = 0.95
-          disable = false
-          submit = true
-          tiku_path = ./api/data/tiku.json
-          
-          true_list = 正确,对,是,true,True,是,对,正确,√,T,t,1
-          false_list = 错误,错,否,false,False,错,错误,×,F,f,0
+          disable = true
           EOF
           
           echo "账号 ${{ matrix.account }} 配置文件创建完成"
           cat config_${{ matrix.account }}.ini | grep -v -E "(password|key) = " || true
       
       - name: 运行刷课脚本 - 账号 ${{ matrix.account }}
-        env:
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
           echo "开始执行账号 ${{ matrix.account }} 的刷课任务..."
           LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
@@ -74,7 +60,7 @@ jobs:
       
       - name: 上传失败日志（如果任务失败）
         if: failure()
-        uses: actions/upload-artifact@v4 # 建议同步升级Artifact上传工具
+        uses: actions/upload-artifact@v4
         with:
           name: failure-logs-account-${{ matrix.account }}
           path: ${{ env.LOG_FILE }}
@@ -89,4 +75,3 @@ jobs:
         run: |
           echo "多账号刷课任务执行完成"
           echo "执行时间: $(date)"
-
