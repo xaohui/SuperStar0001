@@ -11,15 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        account: [1, 2]
+        account: [1, 2, 3]
       max-parallel: 2
     
     steps:
       - name: 拷贝代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4 # 主要变更点
 
       - name: 设置python环境
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v4 # 建议同步升级Python环境
         with:
           python-version: '3.10'
 
@@ -27,7 +27,7 @@ jobs:
         run: |
           pip install -r ./requirements.txt 
       
-      - name: 为账号 ${{ matrix.account }} 创建修复版配置文件
+      - name: 为账号 ${{ matrix.account }} 创建配置文件
         run: |
           cat > config_${{ matrix.account }}.ini << EOF
           [common]
@@ -38,227 +38,55 @@ jobs:
           notopen_action = continue
           
           [tiku]
-          # AI提供商设置
           provider = AI
           endpoint = https://api.deepseek.com/v1
           key = ${{ secrets.DEEPSEEK_API_KEY }}
           model = deepseek-chat
           http_proxy = 
-          
-          # 时间控制设置 (增加处理时间减少时序问题)
-          min_interval_seconds = 5
-          delay = 10.0
-          
-          # 答题精度设置
-          cover_rate = 0.98
+          min_interval_seconds = 3
+          delay = 5.0
+          cover_rate = 0.95
           disable = false
           submit = true
           tiku_path = ./api/data/tiku.json
           
-          # 答案验证设置
-          enable_answer_validation = true
-          validation_retry_count = 2
-          double_check_answer = true
-          answer_format_strict = true
-          
-          # 判断题关键词列表
           true_list = 正确,对,是,true,True,是,对,正确,√,T,t,1
           false_list = 错误,错,否,false,False,错,错误,×,F,f,0
           EOF
           
-          echo "账号 ${{ matrix.account }} 修复版配置文件创建完成"
-          echo "配置文件内容预览 (隐藏敏感信息):"
+          echo "账号 ${{ matrix.account }} 配置文件创建完成"
           cat config_${{ matrix.account }}.ini | grep -v -E "(password|key) = " || true
-
-      - name: 验证配置文件格式
-        run: |
-          echo "验证配置文件格式..."
-          python -c "
-          import configparser
-          config = configparser.ConfigParser()
-          try:
-              config.read('config_${{ matrix.account }}.ini', encoding='utf-8')
-              print('✅ 配置文件格式正确')
-              
-              # 验证数值类型配置
-              delay = config.getfloat('tiku', 'delay')
-              min_interval = config.getfloat('tiku', 'min_interval_seconds')
-              cover_rate = config.getfloat('tiku', 'cover_rate')
-              
-              print(f'✅ 数值配置读取成功: delay={delay}, min_interval={min_interval}, cover_rate={cover_rate}')
-              
-          except Exception as e:
-              print(f'❌ 配置文件格式错误: {e}')
-              exit(1)
-          "
-
-      - name: 创建答案验证脚本 (无注释问题版本)
-        run: |
-          cat > answer_validator.py << 'EOF'
-          import re
-          import time
-          import logging
-          
-          logging.basicConfig(level=logging.INFO)
-          logger = logging.getLogger("AnswerValidator")
-          
-          class AnswerValidator:
-              def __init__(self):
-                  self.true_keywords = ['正确', '对', '是', 'true', 'true', '√', 't', '1']
-                  self.false_keywords = ['错误', '错', '否', 'false', 'false', '×', 'f', '0']
-              
-              def clean_answer(self, raw_answer):
-                  if not raw_answer:
-                      return ""
-                  
-                  answer = str(raw_answer).strip()
-                  
-                  option_match = self._extract_options(answer)
-                  if option_match:
-                      return option_match
-                  
-                  judge_result = self._normalize_judgment(answer)
-                  if judge_result:
-                      return judge_result
-                  
-                  return answer.strip()
-              
-              def _extract_options(self, answer):
-                  cleaned = re.sub(r'^(答案|选项|选择|正确答案)[：:\s]*', '', answer, flags=re.IGNORECASE)
-                  
-                  option_match = re.findall(r'[ABCDabcd]', cleaned.upper())
-                  if option_match:
-                      unique_options = sorted(set(option_match))
-                      return ''.join(unique_options)
-                  
-                  chinese_match = re.findall(r'[一二三四]', cleaned)
-                  if chinese_match:
-                      chinese_to_letter = {'一': 'A', '二': 'B', '三': 'C', '四': 'D'}
-                      return ''.join(chinese_to_letter.get(c, '') for c in chinese_match)
-                  
-                  return ""
-              
-              def _normalize_judgment(self, answer):
-                  answer_lower = answer.lower().strip()
-                  
-                  for keyword in self.true_keywords:
-                      if keyword in answer_lower:
-                          return "正确"
-                  
-                  for keyword in self.false_keywords:
-                      if keyword in answer_lower:
-                          return "错误"
-                  
-                  return ""
-              
-              def validate_answer_before_submit(self, recognized_answer, page_options):
-                  if not recognized_answer:
-                      return False, "", "答案为空"
-                  
-                  cleaned_answer = self.clean_answer(recognized_answer)
-                  
-                  if not self._is_valid_format(cleaned_answer):
-                      return False, cleaned_answer, f"答案格式无效: {cleaned_answer}"
-                  
-                  if not self._is_in_options(cleaned_answer, page_options):
-                      return False, cleaned_answer, f"答案不在选项范围内: {cleaned_answer}"
-                  
-                  return True, cleaned_answer, "验证通过"
-              
-              def _is_valid_format(self, answer):
-                  if not answer:
-                      return False
-                  
-                  if answer in ["正确", "错误"]:
-                      return True
-                  
-                  if re.match(r'^[ABCD]+$', answer):
-                      return True
-                  
-                  return False
-              
-              def _is_in_options(self, answer, page_options):
-                  if not page_options:
-                      return True
-                  
-                  if answer in ["正确", "错误"]:
-                      return True
-                  
-                  for char in answer:
-                      if char not in "ABCD":
-                          return False
-                  
-                  return True
-          
-          if __name__ == "__main__":
-              validator = AnswerValidator()
-              test_cases = ["A", "答案：B", "选项C", "正确", "错误", "我觉得选A", "BC", "答案应该是D"]
-              for test in test_cases:
-                  result = validator.clean_answer(test)
-                  print(f"原始: '{test}' -> 清理后: '{result}'")
-          EOF
-
-      - name: 运行修复版刷课脚本 - 账号 ${{ matrix.account }}
+      
+      - name: 运行刷课脚本 - 账号 ${{ matrix.account }}
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          echo "开始执行账号 ${{ matrix.account }} 的修复版刷课任务..."
-          LOG_FILE="fixed_study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
-          
-          # 复制验证脚本
-          cp answer_validator.py ./api/ || true
-          cp answer_validator.py ./ || true
-          
-          # 运行主程序
+          echo "开始执行账号 ${{ matrix.account }} 的刷课任务..."
+          LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
           python main.py -c config_${{ matrix.account }}.ini 2>&1 | tee $LOG_FILE
           
-          EXIT_CODE=${PIPESTATUS[0]}
-          
-          if [ $EXIT_CODE -eq 0 ]; then
+          if [ ${PIPESTATUS[0]} -eq 0 ]; then
             echo "✅ 账号 ${{ matrix.account }} 刷课任务完成"
-            
-            # 检查答案匹配情况
-            ANSWER_MATCHES=$(grep -c "答案.*匹配\|answer.*match" $LOG_FILE 2>/dev/null || echo "0")
-            ANSWER_ERRORS=$(grep -c "答案.*错误\|answer.*error" $LOG_FILE 2>/dev/null || echo "0")
-            
-            echo "答案匹配统计:"
-            echo "  - 成功匹配: $ANSWER_MATCHES"
-            echo "  - 匹配错误: $ANSWER_ERRORS"
-            
           else
             echo "❌ 账号 ${{ matrix.account }} 刷课任务失败"
             echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
           fi
-
-      - name: 上传修复版日志
-        if: always()
-        uses: actions/upload-artifact@v4
+      
+      - name: 上传失败日志（如果任务失败）
+        if: failure()
+        uses: actions/upload-artifact@v4 # 建议同步升级Artifact上传工具
         with:
-          name: fixed-logs-account-${{ matrix.account }}
-          path: |
-            fixed_study_log_account_${{ matrix.account }}_*.txt
+          name: failure-logs-account-${{ matrix.account }}
+          path: ${{ env.LOG_FILE }}
           retention-days: 7
 
-  ConfigFixSummary:
+  Summary:
     runs-on: ubuntu-latest
     needs: MultiAccountStudy
     if: always()
     steps:
-      - name: 配置修复总结
+      - name: 任务执行总结
         run: |
-          echo "🔧 配置文件修复总结"
-          echo "========================"
-          echo "问题原因: 配置文件中数值字段后面添加了注释"
-          echo "错误示例: delay = 10.0 # 增加延迟"
-          echo "正确示例: delay = 10.0"
-          echo ""
-          echo "修复措施:"
-          echo "✅ 移除配置值后面的行内注释"
-          echo "✅ 将注释单独放在配置项上方"
-          echo "✅ 添加配置文件格式验证步骤"
-          echo "✅ 使用纯数值配置参数"
-          echo ""
-          echo "预防措施:"
-          echo "📝 配置文件只包含键值对，注释单独成行"
-          echo "📝 数值配置不使用任何额外字符"
-          echo "📝 添加配置验证步骤确保格式正确"
+          echo "多账号刷课任务执行完成"
+          echo "执行时间: $(date)"
+
