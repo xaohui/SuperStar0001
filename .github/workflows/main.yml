@@ -1,12 +1,12 @@
 name: 多账号学习
 
-on: 
+on:
   push:
-    branches: [ main ]  
+    branches: [ main ]
   schedule:
     - cron: "0 8 * * *"
 
-jobs: 
+jobs:
   MultiAccountStudy:
     runs-on: ubuntu-latest
     strategy:
@@ -16,76 +16,74 @@ jobs:
           - account: 1
             delay: 0
           - account: 2
-            delay: 30
+            delay: 17
           - account: 3
-            delay: 60
+            delay: 33
       max-parallel: 3
-    
+
     steps:
       - name: 拷贝代码
         uses: actions/checkout@v4
 
-      - name: 设置python环境
+      - name: 设置 Python 环境
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: 安装依赖包
         run: |
-          pip install -r ./requirements.txt 
-      
+          pip install -r ./requirements.txt
+
       - name: 为账号 ${{ matrix.account }} 创建配置
         run: |
           # 生成随机行为参数
           pause_min=$(( (RANDOM % 5) + 3 ))
           pause_max=$(( (RANDOM % 10) + 10 ))
           replay_chance=$(( (RANDOM % 11) + 5 ))
-          
-          # 创建配置文件 - 修复语法错误
-          cat > "config_${{ matrix.account }}.ini" << 'EOF'
-[common]
-username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
-password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
-course_list = 255731372
-speed = 1.0
-notopen_action = continue
 
-[behavior]
-random_pause = true
-pause_min_interval = $(( pause_min * 60 ))
-pause_max_interval = $(( pause_max * 60 ))
-replay_chance = $replay_chance
+          # 创建配置文件
+          cat > "config_${{ matrix.account }}.ini" <<-'EOF'
+          [common]
+          username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
+          password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
+          course_list = 255731372
+          speed = 1.0
+          notopen_action = continue
 
-[tiku]
-disable = true
-EOF
-          
+          [behavior]
+          random_pause = true
+          pause_min_interval = $(( pause_min * 60 ))
+          pause_max_interval = $(( pause_max * 60 ))
+          replay_chance = $replay_chance
+
+          [tiku]
+          disable = true
+          EOF
+
           echo "账号 ${{ matrix.account }} 配置文件创建完成"
           echo "配置文件内容:"
           cat "config_${{ matrix.account }}.ini"
-      
+
       - name: 延迟启动 - 账号 ${{ matrix.account }}
         if: matrix.delay > 0
         run: |
           echo "账号 ${{ matrix.account }} 延迟 ${{ matrix.delay }} 分钟启动..."
           sleep $(( ${{ matrix.delay }} * 60 ))
-      
+
       - name: 运行学习脚本 - 账号 ${{ matrix.account }}
         run: |
           echo "开始执行账号 ${{ matrix.account }} 的学习任务..."
           LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
-          
-          # 添加调试信息
+
           echo "当前目录文件:"
           ls -la
           echo "配置文件内容:"
           cat "config_${{ matrix.account }}.ini"
-          echo "Python版本:"
+          echo "Python 版本:"
           python --version
-          
-          # 运行脚本并捕获详细日志
+
           python main.py -c "config_${{ matrix.account }}.ini" 2>&1 | tee "$LOG_FILE"
-          
+
           EXIT_CODE=${PIPESTATUS[0]}
           if [ $EXIT_CODE -eq 0 ]; then
             echo "✅ 账号 ${{ matrix.account }} 学习任务完成"
@@ -94,7 +92,7 @@ EOF
             echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
             exit $EXIT_CODE
           fi
-      
+
       - name: 上传日志（无论成功或失败）
         uses: actions/upload-artifact@v4
         with:
@@ -112,6 +110,6 @@ EOF
           echo "三账号学习任务执行完成"
           echo "执行时间: $(date)"
           echo "各账号启动延迟:"
-          echo "- 账号1: 0分钟"
-          echo "- 账号2: 30分钟" 
-          echo "- 账号3: 60分钟"
+          echo "- 账号1: 0 分钟"
+          echo "- 账号2: 17 分钟"
+          echo "- 账号3: 33 分钟"
