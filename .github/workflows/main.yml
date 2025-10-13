@@ -18,7 +18,7 @@ jobs:
           - account: 2
             delay: 17
           - account: 3
-            delay: 36
+            delay: 26
       max-parallel: 3
     
     steps:
@@ -41,7 +41,7 @@ jobs:
           pause_max=$(( (RANDOM % 10) + 10 ))
           replay_chance=$(( (RANDOM % 11) + 5 ))
           
-          # 创建配置文件 - 确保所有数值参数都是纯数字
+          # 创建配置文件 - 修复变量引用语法
           cat > config_${{ matrix.account }}.ini << EOF
 [common]
 username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
@@ -114,4 +114,4 @@ EOF
           echo "各账号启动延迟:"
           echo "- 账号1: 0分钟"
           echo "- 账号2: 17分钟" 
-          echo "- 账号3: 36分钟"
+          echo "- 账号3: 26分钟"
