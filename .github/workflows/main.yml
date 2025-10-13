@@ -16,9 +16,9 @@ jobs:
           - account: 1
             delay: 0
           - account: 2
-            delay: 17
+            delay: 30
           - account: 3
-            delay: 26
+            delay: 60
       max-parallel: 3
     
     steps:
@@ -41,8 +41,8 @@ jobs:
           pause_max=$(( (RANDOM % 10) + 10 ))
           replay_chance=$(( (RANDOM % 11) + 5 ))
           
-          # 创建配置文件 - 修复变量引用语法
-          cat > config_${{ matrix.account }}.ini << EOF
+          # 创建配置文件 - 修复语法错误
+          cat > "config_${{ matrix.account }}.ini" << 'EOF'
 [common]
 username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
 password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
@@ -62,7 +62,7 @@ EOF
           
           echo "账号 ${{ matrix.account }} 配置文件创建完成"
           echo "配置文件内容:"
-          cat config_${{ matrix.account }}.ini
+          cat "config_${{ matrix.account }}.ini"
       
       - name: 延迟启动 - 账号 ${{ matrix.account }}
         if: matrix.delay > 0
@@ -79,12 +79,12 @@ EOF
           echo "当前目录文件:"
           ls -la
           echo "配置文件内容:"
-          cat config_${{ matrix.account }}.ini
+          cat "config_${{ matrix.account }}.ini"
           echo "Python版本:"
           python --version
           
           # 运行脚本并捕获详细日志
-          python main.py -c config_${{ matrix.account }}.ini 2>&1 | tee "$LOG_FILE"
+          python main.py -c "config_${{ matrix.account }}.ini" 2>&1 | tee "$LOG_FILE"
           
           EXIT_CODE=${PIPESTATUS[0]}
           if [ $EXIT_CODE -eq 0 ]; then
@@ -99,7 +99,7 @@ EOF
         uses: actions/upload-artifact@v4
         with:
           name: logs-account-${{ matrix.account }}
-          path: study_log_account_${{ matrix.account }}_*.txt
+          path: "study_log_account_${{ matrix.account }}_*.txt"
           retention-days: 7
 
   Summary:
@@ -113,5 +113,5 @@ EOF
           echo "执行时间: $(date)"
           echo "各账号启动延迟:"
           echo "- 账号1: 0分钟"
-          echo "- 账号2: 17分钟" 
-          echo "- 账号3: 26分钟"
+          echo "- 账号2: 30分钟" 
+          echo "- 账号3: 60分钟"
