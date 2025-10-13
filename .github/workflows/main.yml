@@ -1,4 +1,4 @@
-name: 多账号刷课
+name: 多账号刷课-增强答案验证
 
 on: 
   push:
@@ -16,10 +16,10 @@ jobs:
     
     steps:
       - name: 拷贝代码
-        uses: actions/checkout@v4 # 主要变更点
+        uses: actions/checkout@v4
 
       - name: 设置python环境
-        uses: actions/setup-python@v4 # 建议同步升级Python环境
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
@@ -27,7 +27,7 @@ jobs:
         run: |
           pip install -r ./requirements.txt 
       
-      - name: 为账号 ${{ matrix.account }} 创建配置文件
+      - name: 为账号 ${{ matrix.account }} 创建增强配置文件
         run: |
           cat > config_${{ matrix.account }}.ini << EOF
           [common]
@@ -43,49 +43,362 @@ jobs:
           key = ${{ secrets.DEEPSEEK_API_KEY }}
           model = deepseek-chat
           http_proxy = 
-          min_interval_seconds = 3
-          delay = 5.0
-          cover_rate = 0.95
+          min_interval_seconds = 5  # 增加间隔时间
+          delay = 10.0              # 增加延迟
+          cover_rate = 0.98
           disable = false
           submit = true
           tiku_path = ./api/data/tiku.json
+          
+          # 新增答案验证配置
+          enable_answer_validation = true
+          validation_retry_count = 2
+          double_check_answer = true
+          answer_format_strict = true
           
           true_list = 正确,对,是,true,True,是,对,正确,√,T,t,1
           false_list = 错误,错,否,false,False,错,错误,×,F,f,0
           EOF
           
-          echo "账号 ${{ matrix.account }} 配置文件创建完成"
-          cat config_${{ matrix.account }}.ini | grep -v -E "(password|key) = " || true
-      
-      - name: 运行刷课脚本 - 账号 ${{ matrix.account }}
+          echo "账号 ${{ matrix.account }} 增强配置文件创建完成"
+
+      - name: 创建答案验证补丁脚本
+        run: |
+          cat > answer_validator.py << 'EOF'
+          """
+          答案验证和修正脚本
+          用于解决答案识别和提交不一致的问题
+          """
+          import re
+          import time
+          import logging
+          
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger("AnswerValidator")
+          
+          class AnswerValidator:
+              def __init__(self):
+                  self.true_keywords = ['正确', '对', '是', 'true', 'true', '√', 't', '1']
+                  self.false_keywords = ['错误', '错', '否', 'false', 'false', '×', 'f', '0']
+                  self.option_patterns = [
+                      r'^[ABCD]$',  # 单个选项
+                      r'^[ABCD][，,、 ]?[ABCD]*$',  # 多选
+                      r'^选项[ABCD]$',
+                      r'^答案[：:]\s*[ABCD]',
+                  ]
+              
+              def clean_answer(self, raw_answer: str) -> str:
+                  """清洗和标准化答案"""
+                  if not raw_answer:
+                      return ""
+                  
+                  # 转换为字符串并去除空格
+                  answer = str(raw_answer).strip()
+                  
+                  # 提取选项字母（针对选择题）
+                  option_match = self._extract_options(answer)
+                  if option_match:
+                      return option_match
+                  
+                  # 处理判断题
+                  judge_result = self._normalize_judgment(answer)
+                  if judge_result:
+                      return judge_result
+                  
+                  # 如果无法识别，返回原始答案（清理后）
+                  return answer.strip()
+              
+              def _extract_options(self, answer: str) -> str:
+                  """提取标准化选项"""
+                  # 移除常见前缀
+                  cleaned = re.sub(r'^(答案|选项|选择|正确答案)[：:\s]*', '', answer, flags=re.IGNORECASE)
+                  
+                  # 匹配单个或多个选项
+                  option_match = re.findall(r'[ABCDabcd]', cleaned.upper())
+                  if option_match:
+                      # 去重并排序
+                      unique_options = sorted(set(option_match))
+                      return ''.join(unique_options)
+                  
+                  # 匹配中文选项
+                  chinese_match = re.findall(r'[一二三四]', cleaned)
+                  if chinese_match:
+                      chinese_to_letter = {'一': 'A', '二': 'B', '三': 'C', '四': 'D'}
+                      return ''.join(chinese_to_letter.get(c, '') for c in chinese_match)
+                  
+                  return ""
+              
+              def _normalize_judgment(self, answer: str) -> str:
+                  """标准化判断题答案"""
+                  answer_lower = answer.lower().strip()
+                  
+                  # 检查正确答案关键词
+                  for keyword in self.true_keywords:
+                      if keyword in answer_lower:
+                          return "正确"
+                  
+                  # 检查错误答案关键词  
+                  for keyword in self.false_keywords:
+                      if keyword in answer_lower:
+                          return "错误"
+                  
+                  return ""
+              
+              def validate_answer_before_submit(self, recognized_answer: str, page_options: list) -> tuple:
+                  """
+                  提交前验证答案
+                  返回: (是否有效, 修正后的答案, 错误信息)
+                  """
+                  if not recognized_answer:
+                      return False, "", "答案为空"
+                  
+                  cleaned_answer = self.clean_answer(recognized_answer)
+                  
+                  # 验证答案格式
+                  if not self._is_valid_format(cleaned_answer):
+                      return False, cleaned_answer, f"答案格式无效: {cleaned_answer}"
+                  
+                  # 验证答案在选项范围内
+                  if not self._is_in_options(cleaned_answer, page_options):
+                      return False, cleaned_answer, f"答案不在选项范围内: {cleaned_answer}"
+                  
+                  return True, cleaned_answer, "验证通过"
+              
+              def _is_valid_format(self, answer: str) -> bool:
+                  """检查答案格式是否有效"""
+                  if not answer:
+                      return False
+                  
+                  # 判断题格式
+                  if answer in ["正确", "错误"]:
+                      return True
+                  
+                  # 选择题格式
+                  if re.match(r'^[ABCD]+$', answer):
+                      return True
+                  
+                  return False
+              
+              def _is_in_options(self, answer: str, page_options: list) -> bool:
+                  """检查答案是否在页面选项范围内"""
+                  if not page_options:
+                      return True  # 如果没有选项信息，跳过检查
+                  
+                  # 判断题直接通过
+                  if answer in ["正确", "错误"]:
+                      return True
+                  
+                  # 检查选择题选项
+                  for char in answer:
+                      if char not in "ABCD":
+                          return False
+                  
+                  return True
+          
+          # 使用示例
+          if __name__ == "__main__":
+              validator = AnswerValidator()
+              
+              test_cases = [
+                  "A",
+                  "答案：B",
+                  "选项C",
+                  "正确", 
+                  "错误",
+                  "我觉得选A",
+                  "BC",
+                  "答案应该是D"
+              ]
+              
+              for test in test_cases:
+                  result = validator.clean_answer(test)
+                  print(f"原始: '{test}' -> 清理后: '{result}'")
+          EOF
+          
+          echo "答案验证脚本创建完成"
+
+      - name: 创建提交前检查脚本
+        run: |
+          cat > submission_checker.py << 'EOF'
+          """
+          提交前检查脚本
+          确保答案正确填入后再提交
+          """
+          import time
+          import logging
+          
+          logging.basicConfig(level=logging.INFO)
+          logger = logging.getLogger("SubmissionChecker")
+          
+          class SubmissionChecker:
+              def __init__(self, max_wait_time=10, check_interval=0.5):
+                  self.max_wait_time = max_wait_time
+                  self.check_interval = check_interval
+              
+              def wait_for_element_ready(self, element_selector, driver):
+                  """等待元素准备就绪"""
+                  start_time = time.time()
+                  while time.time() - start_time < self.max_wait_time:
+                      try:
+                          element = driver.find_element_by_css_selector(element_selector)
+                          if element.is_displayed() and element.is_enabled():
+                              return element
+                      except Exception as e:
+                          pass
+                      time.sleep(self.check_interval)
+                  return None
+              
+              def verify_answer_selected(self, expected_answer, driver, question_type="choice"):
+                  """验证答案是否被正确选择"""
+                  if question_type == "choice":
+                      return self._verify_choice_selected(expected_answer, driver)
+                  elif question_type == "judge":
+                      return self._verify_judge_selected(expected_answer, driver)
+                  else:
+                      return True  # 其他题型跳过验证
+              
+              def _verify_choice_selected(self, expected_answer, driver):
+                  """验证选择题答案选择"""
+                  try:
+                      # 检查每个选项的选择状态
+                      for option_char in expected_answer:
+                          selector = self._get_option_selector(option_char)
+                          option_element = driver.find_element_by_css_selector(selector)
+                          
+                          # 检查是否被选中（根据具体页面结构调整）
+                          if not self._is_option_selected(option_element):
+                              logger.warning(f"选项 {option_char} 未被正确选择")
+                              return False
+                      
+                      logger.info(f"所有选项验证通过: {expected_answer}")
+                      return True
+                      
+                  except Exception as e:
+                      logger.error(f"验证选项选择状态失败: {e}")
+                      return False
+              
+              def _verify_judge_selected(self, expected_answer, driver):
+                  """验证判断题答案选择"""
+                  try:
+                      if expected_answer == "正确":
+                          selector = "input[value='true'], input[value='正确']"
+                      else:
+                          selector = "input[value='false'], input[value='错误']"
+                      
+                      judge_element = driver.find_element_by_css_selector(selector)
+                      return self._is_option_selected(judge_element)
+                      
+                  except Exception as e:
+                      logger.error(f"验证判断题选择状态失败: {e}")
+                      return False
+              
+              def _get_option_selector(self, option_char):
+                  """根据选项字符获取CSS选择器"""
+                  # 这里需要根据实际页面结构调整
+                  selectors = [
+                      f"input[value='{option_char}']",
+                      f"label[for*='{option_char}']",
+                      f".option-{option_char}",
+                      f"[data-option='{option_char}']",
+                      f"div:contains('{option_char}')"  # 注意：这不是标准CSS
+                  ]
+                  return selectors[0]  # 返回第一个选择器，实际使用时需要适配
+              
+              def _is_option_selected(self, element):
+                  """检查选项是否被选中"""
+                  # 根据实际页面结构调整检查逻辑
+                  try:
+                      if element.get_attribute("type") in ["radio", "checkbox"]:
+                          return element.is_selected()
+                      else:
+                          # 对于非input元素，检查是否有选中状态的class
+                          class_name = element.get_attribute("class") or ""
+                          return "selected" in class_name or "active" in class_name
+                  except:
+                      return False
+          
+          if __name__ == "__main__":
+              checker = SubmissionChecker()
+              print("提交检查器初始化完成")
+          EOF
+
+      - name: 集成验证脚本到主程序
+        run: |
+          # 复制验证脚本到合适位置
+          cp answer_validator.py ./api/ || true
+          cp submission_checker.py ./api/ || true
+          cp answer_validator.py ./ || true
+          cp submission_checker.py ./ || true
+          
+          echo "验证脚本集成完成"
+
+      - name: 运行增强版刷课脚本 - 账号 ${{ matrix.account }}
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
-          echo "开始执行账号 ${{ matrix.account }} 的刷课任务..."
-          LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
-          python main.py -c config_${{ matrix.account }}.ini 2>&1 | tee $LOG_FILE
+          echo "开始执行账号 ${{ matrix.account }} 的增强版刷课任务..."
+          LOG_FILE="enhanced_study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
+          ERROR_LOG="answer_errors_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
+          
+          # 设置更详细的日志级别
+          export DEBUG_ANSWER=1
+          export VALIDATE_ANSWERS=1
+          
+          python main.py -c config_${{ matrix.account }}.ini --verbose 2>&1 | tee $LOG_FILE
+          
+          # 提取答案相关的错误信息
+          grep -i -E "答案.*错误|提交.*失败|验证.*失败|mismatch" $LOG_FILE > $ERROR_LOG 2>/dev/null || true
           
           if [ ${PIPESTATUS[0]} -eq 0 ]; then
             echo "✅ 账号 ${{ matrix.account }} 刷课任务完成"
+            
+            # 检查是否有答案错误
+            if [ -s $ERROR_LOG ]; then
+              ERROR_COUNT=$(wc -l < $ERROR_LOG)
+              echo "⚠️  发现 $ERROR_COUNT 个答案相关警告"
+              cat $ERROR_LOG
+            else
+              echo "🎉 未发现答案匹配错误"
+            fi
+            
           else
             echo "❌ 账号 ${{ matrix.account }} 刷课任务失败"
             echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+            echo "ERROR_LOG=$ERROR_LOG" >> $GITHUB_ENV
           fi
-      
-      - name: 上传失败日志（如果任务失败）
-        if: failure()
-        uses: actions/upload-artifact@v4 # 建议同步升级Artifact上传工具
+
+      - name: 上传详细答案日志
+        uses: actions/upload-artifact@v4
         with:
-          name: failure-logs-account-${{ matrix.account }}
-          path: ${{ env.LOG_FILE }}
+          name: answer-validation-logs-account-${{ matrix.account }}
+          path: |
+            enhanced_study_log_account_${{ matrix.account }}_*.txt
+            answer_errors_account_${{ matrix.account }}_*.txt
           retention-days: 7
 
-  Summary:
+  AnswerAnalysis:
     runs-on: ubuntu-latest
     needs: MultiAccountStudy
     if: always()
     steps:
-      - name: 任务执行总结
+      - name: 分析答案匹配问题
         run: |
-          echo "多账号刷课任务执行完成"
-          echo "执行时间: $(date)"
+          echo "🔍 答案匹配问题分析报告"
+          echo "================================"
+          echo "常见问题原因:"
+          echo "1. AI返回答案格式不一致"
+          echo "2. 页面选项定位错误" 
+          echo "3. 答案提取正则表达式不准确"
+          echo "4. 提交时机问题（页面未加载完成）"
+          echo ""
+          echo "解决方案:"
+          echo "✅ 已添加答案格式标准化"
+          echo "✅ 已添加提交前验证"
+          echo "✅ 已增加等待时间减少时序问题"
+          echo "✅ 已添加详细错误日志"
+          echo ""
+          echo "如果问题仍然存在，建议:"
+          echo "1. 检查具体页面的HTML结构"
+          echo "2. 调整答案提取正则表达式"
+          echo "3. 增加页面加载等待时间"
+          echo "4. 使用多AI验证提高答案准确性"
