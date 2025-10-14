@@ -49,47 +49,48 @@ jobs:
             2) user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0" ;;
           esac
 
+          # 修正：EOF 必须顶格写，不能有缩进
           cat > "config_${{ matrix.account }}.ini" << EOF
-          [common]
-          username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
-          password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
-          course_list = 255731372
-          speed = 1.0
-          notopen_action = continue
-          
-          [behavior]
-          random_pause = true
-          pause_min_interval = $(( pause_min * 60 ))
-          pause_max_interval = $(( pause_max * 60 ))
-          replay_chance = $replay_chance
-          
-          [network]
-          user_agent = $user_agent
-          accept_language = zh-CN,zh;q=0.9,en;q=0.8
-          accept_encoding = gzip, deflate, br
-          connection = keep-alive
-          sec_ch_ua = "Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"
-          sec_ch_ua_mobile = ?0
-          sec_ch_ua_platform = "Windows"
-          sec_fetch_site = same-origin
-          sec_fetch_mode = navigate
-          sec_fetch_user = ?1
-          sec_fetch_dest = document
-          request_delay = $request_delay
-          random_delay_range = $random_delay_range
-          max_concurrent = 1
-          max_retries = 3
-          retry_delay = 10
-          timeout = 30
-          
-          [tiku]
-          disable = true
-          
-          [security]
-          random_click = true
-          simulate_scroll = true
-          human_behavior = true
-          EOF
+[common]
+username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
+password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
+course_list = 255731372
+speed = 1.0
+notopen_action = continue
+
+[behavior]
+random_pause = true
+pause_min_interval = $(( pause_min * 60 ))
+pause_max_interval = $(( pause_max * 60 ))
+replay_chance = $replay_chance
+
+[network]
+user_agent = $user_agent
+accept_language = zh-CN,zh;q=0.9,en;q=0.8
+accept_encoding = gzip, deflate, br
+connection = keep-alive
+sec_ch_ua = "Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"
+sec_ch_ua_mobile = ?0
+sec_ch_ua_platform = "Windows"
+sec_fetch_site = same-origin
+sec_fetch_mode = navigate
+sec_fetch_user = ?1
+sec_fetch_dest = document
+request_delay = $request_delay
+random_delay_range = $random_delay_range
+max_concurrent = 1
+max_retries = 3
+retry_delay = 10
+timeout = 30
+
+[tiku]
+disable = true
+
+[security]
+random_click = true
+simulate_scroll = true
+human_behavior = true
+EOF
           echo "账号 ${{ matrix.account }} 配置文件创建完成"
           echo "用户代理: $user_agent"
           echo "网络延迟设置: ${request_delay}s ± ${random_delay_range}s"
@@ -121,8 +122,12 @@ jobs:
               RETRY_COUNT=$((RETRY_COUNT+1))
               echo "❌ 账号 ${{ matrix.account }} 学习任务失败，退出码: $EXIT_CODE"
 
-              grep -q "403" "$LOG_FILE" && echo "⚠️ 检测到403错误，可能是权限问题"
-              grep -q "493" "$LOG_FILE" && echo "⚠️ 检测到493错误，可能是请求头问题"
+              if grep -q "403" "$LOG_FILE"; then
+                echo "⚠️ 检测到403错误，可能是权限问题"
+              fi
+              if grep -q "493" "$LOG_FILE"; then
+                echo "⚠️ 检测到493错误，可能是请求头问题"
+              fi
 
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                 echo "等待 5 分钟后重试..."
@@ -139,39 +144,40 @@ jobs:
                   2) user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ;;
                 esac
 
+                # 修正：第二个 EOF 也必须顶格写
                 cat > "config_${{ matrix.account }}.ini" << EOF
-                [common]
-                username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
-                password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
-                course_list = 255731372
-                speed = 1.0
-                notopen_action = continue
-                 
-                [behavior]
-                random_pause = true
-                pause_min_interval = $(( pause_min * 60 ))
-                pause_max_interval = $(( pause_max * 60 ))
-                replay_chance = $(( (RANDOM % 11) + 5 ))
-                
-                [network]
-                user_agent = $user_agent
-                accept_language = zh-CN,zh;q=0.9,en;q=0.8
-                accept_encoding = gzip, deflate, br
-                request_delay = $request_delay
-                random_delay_range = $(( (RANDOM % 3) + 2 ))
-                max_concurrent = 1
-                max_retries = 3
-                retry_delay = 15
-                timeout = 30
-                
-                [tiku]
-                disable = true
-                
-                [security]
-                random_click = true
-                simulate_scroll = true
-                human_behavior = true
-                EOF
+[common]
+username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
+password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
+course_list = 255731372
+speed = 1.0
+notopen_action = continue
+
+[behavior]
+random_pause = true
+pause_min_interval = $(( pause_min * 60 ))
+pause_max_interval = $(( pause_max * 60 ))
+replay_chance = $(( (RANDOM % 11) + 5 ))
+
+[network]
+user_agent = $user_agent
+accept_language = zh-CN,zh;q=0.9,en;q=0.8
+accept_encoding = gzip, deflate, br
+request_delay = $request_delay
+random_delay_range = $(( (RANDOM % 3) + 2 ))
+max_concurrent = 1
+max_retries = 3
+retry_delay = 15
+timeout = 30
+
+[tiku]
+disable = true
+
+[security]
+random_click = true
+simulate_scroll = true
+human_behavior = true
+EOF
               else
                 echo "❌ 达到最大重试次数，任务失败"
                 echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
@@ -179,13 +185,15 @@ jobs:
             fi
           done
 
-          [ $SUCCESS -eq 0 ] && exit 1 || true
+          if [ $SUCCESS -eq 0 ]; then
+            exit 1
+          fi
 
       - name: 上传日志（无论成功或失败）
         uses: actions/upload-artifact@v4
         with:
           name: logs-account-${{ matrix.account }}
-          path: study_log_account_${{ matrix.account }}_*.txt
+          path: "study_log_account_${{ matrix.account }}_*.txt"
           retention-days: 7
 
   Summary:
