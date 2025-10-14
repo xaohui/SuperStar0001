@@ -14,12 +14,12 @@ jobs:
         account: [1, 2, 3]
         include:
           - account: 1
-            delay: 0
+            initial_delay: 0
           - account: 2
-            delay: 17
+            initial_delay: 420  # 7分钟延迟
           - account: 3
-            delay: 33
-      max-parallel: 3
+            initial_delay: 1260  # 21分钟延迟
+      max-parallel: 3  # 并行执行三个账号
 
     steps:
       - name: 拷贝代码
@@ -34,63 +34,185 @@ jobs:
         run: |
           pip install -r ./requirements.txt
 
-      - name: 为账号 ${{ matrix.account }} 创建配置
+      - name: 为账号 ${{ matrix.account }} 创建差异化配置
         run: |
-          # 生成随机行为参数
+          # 为每个账号生成独特的随机行为参数
           pause_min=$(( (RANDOM % 5) + 3 ))
           pause_max=$(( (RANDOM % 10) + 10 ))
           replay_chance=$(( (RANDOM % 11) + 5 ))
+          request_delay=$(( (RANDOM % 5) + 2 ))
+          random_delay_range=$(( (RANDOM % 3) + 1 ))
+          
+          # 为每个账号生成不同的用户代理
+          case $(( (RANDOM % 3) )) in
+            0)
+              user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+              ;;
+            1)
+              user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+              ;;
+            2)
+              user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0"
+              ;;
+          esac
 
-          # 创建配置文件
-          cat > "config_${{ matrix.account }}.ini" <<-'EOF'
-          [common]
-          username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
-          password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
-          course_list = 255731372
-          speed = 1.0
-          notopen_action = continue
+          # 创建差异化配置文件
+          cat > "config_${{ matrix.account }}.ini" << EOF
+[common]
+username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
+password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
+course_list = 255731372
+speed = 1.0
+notopen_action = continue
 
-          [behavior]
-          random_pause = true
-          pause_min_interval = $(( pause_min * 60 ))
-          pause_max_interval = $(( pause_max * 60 ))
-          replay_chance = $replay_chance
+[behavior]
+random_pause = true
+pause_min_interval = $(( pause_min * 60 ))
+pause_max_interval = $(( pause_max * 60 ))
+replay_chance = $replay_chance
 
-          [tiku]
-          disable = true
-          EOF
+[network]
+# 差异化用户代理
+user_agent = $user_agent
+accept_language = zh-CN,zh;q=0.9,en;q=0.8
+accept_encoding = gzip, deflate, br
+connection = keep-alive
+sec_ch_ua = "Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"
+sec_ch_ua_mobile = ?0
+sec_ch_ua_platform = "Windows"
+sec_fetch_site = same-origin
+sec_fetch_mode = navigate
+sec_fetch_user = ?1
+sec_fetch_dest = document
+
+# 差异化请求频率控制
+request_delay = $request_delay
+random_delay_range = $random_delay_range
+max_concurrent = 1
+
+# 错误处理
+max_retries = 3
+retry_delay = 10
+timeout = 30
+
+[tiku]
+disable = true
+
+[security]
+# 避免检测的额外设置
+random_click = true
+simulate_scroll = true
+human_behavior = true
+EOF
 
           echo "账号 ${{ matrix.account }} 配置文件创建完成"
-          echo "配置文件内容:"
+          echo "用户代理: $user_agent"
+          echo "网络延迟设置: ${request_delay}s ± ${random_delay_range}s"
           cat "config_${{ matrix.account }}.ini"
 
-      - name: 延迟启动 - 账号 ${{ matrix.account }}
-        if: matrix.delay > 0
+      - name: 初始延迟 - 账号 ${{ matrix.account }}
+        if: matrix.initial_delay > 0
         run: |
-          echo "账号 ${{ matrix.account }} 延迟 ${{ matrix.delay }} 分钟启动..."
-          sleep $(( ${{ matrix.delay }} * 60 ))
+          echo "账号 ${{ matrix.account }} 初始延迟 ${{ matrix.initial_delay }} 秒..."
+          sleep ${{ matrix.initial_delay }}
 
-      - name: 运行学习脚本 - 账号 ${{ matrix.account }}
+      - name: 运行学习脚本 - 账号 ${{ matrix.account }} (带重试机制)
         run: |
           echo "开始执行账号 ${{ matrix.account }} 的学习任务..."
           LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
+          
+          # 设置最大重试次数
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          SUCCESS=0
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ $SUCCESS -eq 0 ]; do
+            echo "尝试执行 (第 $((RETRY_COUNT+1)) 次)"
+            
+            # 运行脚本并捕获详细日志
+            python main.py -c "config_${{ matrix.account }}.ini" 2>&1 | tee "$LOG_FILE"
+            
+            EXIT_CODE=${PIPESTATUS[0]}
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "✅ 账号 ${{ matrix.account }} 学习任务完成"
+              SUCCESS=1
+            else
+              RETRY_COUNT=$((RETRY_COUNT+1))
+              echo "❌ 账号 ${{ matrix.account }} 学习任务失败，退出码: $EXIT_CODE"
+              
+              # 检查日志中特定错误
+              if grep -q "403" "$LOG_FILE"; then
+                echo "⚠️ 检测到403错误，可能是权限问题"
+              fi
+              if grep -q "493" "$LOG_FILE"; then
+                echo "⚠️ 检测到493错误，可能是请求头问题"
+              fi
+              
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "等待 5 分钟后重试..."
+                sleep 300  # 等待5分钟
+                
+                # 重试时重新生成配置文件，更新参数
+                echo "重新生成配置文件以更新参数..."
+                pause_min=$(( (RANDOM % 5) + 3 ))
+                pause_max=$(( (RANDOM % 10) + 10 ))
+                request_delay=$(( (RANDOM % 5) + 3 ))  # 重试时增加延迟
+                
+                # 重试时更换用户代理
+                case $(( (RANDOM % 3) )) in
+                  0)
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+                    ;;
+                  1)
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15"
+                    ;;
+                  2)
+                    user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    ;;
+                esac
+                
+                cat > "config_${{ matrix.account }}.ini" << EOF
+[common]
+username = ${{ secrets[format('USERNAME{0}', matrix.account)] }}
+password = ${{ secrets[format('PASSWORD{0}', matrix.account)] }}
+course_list = 255731372
+speed = 1.0
+notopen_action = continue
 
-          echo "当前目录文件:"
-          ls -la
-          echo "配置文件内容:"
-          cat "config_${{ matrix.account }}.ini"
-          echo "Python 版本:"
-          python --version
+[behavior]
+random_pause = true
+pause_min_interval = $(( pause_min * 60 ))
+pause_max_interval = $(( pause_max * 60 ))
+replay_chance = $(( (RANDOM % 11) + 5 ))
 
-          python main.py -c "config_${{ matrix.account }}.ini" 2>&1 | tee "$LOG_FILE"
+[network]
+user_agent = $user_agent
+accept_language = zh-CN,zh;q=0.9,en;q=0.8
+accept_encoding = gzip, deflate, br
+request_delay = $request_delay
+random_delay_range = $(( (RANDOM % 3) + 2 ))
+max_concurrent = 1
+max_retries = 3
+retry_delay = 15  # 重试时增加延迟
+timeout = 30
 
-          EXIT_CODE=${PIPESTATUS[0]}
-          if [ $EXIT_CODE -eq 0 ]; then
-            echo "✅ 账号 ${{ matrix.account }} 学习任务完成"
-          else
-            echo "❌ 账号 ${{ matrix.account }} 学习任务失败，退出码: $EXIT_CODE"
-            echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
-            exit $EXIT_CODE
+[tiku]
+disable = true
+
+[security]
+random_click = true
+simulate_scroll = true
+human_behavior = true
+EOF
+              else
+                echo "❌ 达到最大重试次数，任务失败"
+                echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+              fi
+            fi
+          done
+          
+          if [ $SUCCESS -eq 0 ]; then
+            exit 1
           fi
 
       - name: 上传日志（无论成功或失败）
@@ -107,9 +229,11 @@ jobs:
     steps:
       - name: 任务执行总结
         run: |
-          echo "三账号学习任务执行完成"
+          echo "多账号并行学习任务执行完成"
           echo "执行时间: $(date)"
-          echo "各账号启动延迟:"
-          echo "- 账号1: 0 分钟"
-          echo "- 账号2: 17 分钟"
-          echo "- 账号3: 33 分钟"
+          echo "执行策略:"
+          echo "- 三个账号并行执行"
+          echo "- 差异化初始延迟 (0/5/10分钟)"
+          echo "- 差异化用户代理和网络参数"
+          echo "- 多层重试机制"
+          echo "- 403/493错误检测和处理"
