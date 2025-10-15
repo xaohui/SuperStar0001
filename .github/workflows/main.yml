@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        account: [1, 2, 3]
+        account: [1]
         include:
           - account: 1
             delay: 0
