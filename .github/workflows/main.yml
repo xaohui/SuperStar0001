@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        account: [1,2]
+        account: [4]
         include:
-          - account: 1
+          - account: 4
             delay: 0
-          - account: 2
-            delay: 17
+         # - account: 2
+            #delay: 17
           #- account: 3
             #delay: 33
       max-parallel: 3
@@ -143,6 +143,5 @@ jobs:
           echo "三账号学习任务执行完成"
           echo "执行时间: $(date)"
           echo "各账号启动延迟:"
-          echo "- 账号1: 0 分钟"
-          echo "- 账号2: 17 分钟"
+          echo "- 账号4: 0 分钟"
           
