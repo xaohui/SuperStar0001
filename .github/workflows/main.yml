@@ -1,72 +1,148 @@
-name: 刷课
+name: 多账号学习
 
-on: 
+on:
   push:
-    branches: [ main ]  
-  schedule:
-    - cron: "0 8 * * *"
+    branches: [ main ]
+  ## - cron: "0 8 * * *"
 
-jobs: 
-  Start:
+jobs:
+  MultiAccountStudy:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        account: [1,2]
+        include:
+          - account: 1
+            delay: 0
+          - account: 2
+            delay: 17
+          #- account: 3
+            #delay: 33
+      max-parallel: 3
+
     steps:
       - name: 拷贝代码
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: 设置python环境
-        uses: actions/setup-python@v2
+      - name: 设置 Python 环境
+        uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
       - name: 安装依赖包
         run: |
-          pip install -r ./requirements.txt 
-      
-      - name: 创建题库配置文件
+          pip install -r ./requirements.txt
+      - name: 为账号 ${{ matrix.account }} 创建配置
         run: |
-          # 创建配置文件
-          cat > config.ini << EOF
-          [common]
-          username = ${{ secrets.USERNAME }}
-          password = ${{ secrets.PASSWORD }}
-          course_list = 
-          speed = 1.0
-          notopen_action = continue
-          
-          #[tiku]
-          # 使用AI题库（DeepSeek）
-          provider = AI
-          
-          # DeepSeek API配置
-          #endpoint = https://api.deepseek.com/v1
-          #key = ${{ secrets.DEEPSEEK_API_KEY }}
-          #model = deepseek-chat
-          #http_proxy = 
-          #min_interval_seconds = 3
-          
-          # 通用配置
-          #delay = 5.0
-          #cover_rate = 0.95
-          #disable = false
-          #submit = true
-          #tiku_path = ./api/data/tiku.json
-          
-          # 判断题选项
-          #true_list = 正确,对,是,true,True,是,对,正确,√,T,t,1
-          #false_list = 错误,错,否,false,False,错,错误,×,F,f,0
-          #EOF
-          
-          echo "配置文件创建完成"
-          # 安全显示配置内容（隐藏敏感信息）
-          cat config.ini | grep -v -E "(password|key) = " || true
-      
-      - name: 运行刷课脚本（先看视频再自动答题）
-        env:
-          USERNAME: ${{ secrets.USERNAME }}
-          PASSWORD: ${{ secrets.PASSWORD }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          # 生成随机行为参数
+          pause_min=$(( (RANDOM % 5) + 3 ))
+          pause_max=$(( (RANDOM % 10) + 10 ))
+          replay_chance=$(( (RANDOM % 11) + 5 ))
+          request_delay=$(( (RANDOM % 5) + 2 ))
+          random_delay_range=$(( (RANDOM % 3) + 1 ))
+          # 随机用户代理
+          case $(( RANDOM % 3 )) in
+            0) user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ;;
+            1) user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36" ;;
+            2) user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0" ;;
+          esac
+          # 使用printf写入配置文件避免heredoc的YAML解析问题
+          printf '[common]\nusername = %s\npassword = %s\ncourse_list = 255731372\nspeed = 1.0\nnotopen_action = continue\n\n[behavior]\nrandom_pause = true\npause_min_interval = %d\npause_max_interval = %d\nreplay_chance = %d\n\n[network]\nuser_agent = %s\naccept_language = zh-CN,zh;q=0.9,en;q=0.8\naccept_encoding = gzip, deflate, br\nrequest_delay = %d\nrandom_delay_range = %d\nmax_concurrent = 1\nmax_retries = 3\nretry_delay = 10\ntimeout = 30\n\n[tiku]\ndisable = true\n' \
+            "${{ secrets[format('USERNAME{0}', matrix.account)] }}" \
+            "${{ secrets[format('PASSWORD{0}', matrix.account)] }}" \
+            $(( pause_min * 60 )) \
+            $(( pause_max * 60 )) \
+            $replay_chance \
+            "$user_agent" \
+            $request_delay \
+            $random_delay_range > "config_${{ matrix.account }}.ini"
+          echo "账号 ${{ matrix.account }} 配置文件创建完成"
+          echo "用户代理: $user_agent"
+          echo "网络延迟: ${request_delay}s ± ${random_delay_range}s"
+          cat "config_${{ matrix.account }}.ini"
+      - name: 延迟启动 - 账号 ${{ matrix.account }}
+        if: matrix.delay > 0
         run: |
-          echo "开始执行刷课任务..."
-          echo "流程：登录 → 获取课程 → 观看视频 → 使用DeepSeek自动答题 → 完成章节"
-          python main.py -c config.ini
-          echo "刷课任务完成"
+          echo "账号 ${{ matrix.account }} 延迟 ${{ matrix.delay }} 分钟启动..."
+          sleep $(( ${{ matrix.delay }} * 60 ))
+      - name: 运行学习脚本 - 账号 ${{ matrix.account }} (带重试机制)
+        run: |
+          echo "开始执行账号 ${{ matrix.account }} 的学习任务..."
+          LOG_FILE="study_log_account_${{ matrix.account }}_$(date +%Y%m%d_%H%M%S).txt"
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          SUCCESS=0
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ $SUCCESS -eq 0 ]; do
+            echo "尝试执行 (第 $((RETRY_COUNT+1)) 次)"
+            python main.py -c "config_${{ matrix.account }}.ini" 2>&1 | tee "$LOG_FILE"
+            EXIT_CODE=${PIPESTATUS[0]}
+            if [ $EXIT_CODE -eq 0 ]; then
+              echo "✅ 账号 ${{ matrix.account }} 学习任务完成"
+              SUCCESS=1
+            else
+              RETRY_COUNT=$((RETRY_COUNT+1))
+              echo "❌ 账号 ${{ matrix.account }} 学习任务失败，退出码: $EXIT_CODE"
+              # 检测特定错误
+              if grep -q "403" "$LOG_FILE"; then
+                echo "⚠️ 检测到403错误，可能是权限问题"
+              fi
+              if grep -q "493" "$LOG_FILE"; then
+                echo "⚠️ 检测到493错误，可能是请求头问题"
+              fi
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "等待 5 分钟后重试..."
+                sleep 300
+                
+                # 重试时更新配置参数
+                request_delay=$(( (RANDOM % 5) + 3 ))
+                case $(( RANDOM % 3 )) in
+                  0) user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36" ;;
+                  1) user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15" ;;
+                  2) user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" ;;
+                esac
+                
+                # 重试时重新生成随机参数
+                pause_min=$(( (RANDOM % 5) + 3 ))
+                pause_max=$(( (RANDOM % 10) + 10 ))
+                replay_chance=$(( (RANDOM % 11) + 5 ))
+                random_delay_range=$(( (RANDOM % 3) + 2 ))
+                
+                # 使用printf重新创建配置文件
+                printf '[common]\nusername = %s\npassword = %s\ncourse_list = 255731372\nspeed = 1.0\nnotopen_action = continue\n\n[behavior]\nrandom_pause = true\npause_min_interval = %d\npause_max_interval = %d\nreplay_chance = %d\n\n[network]\nuser_agent = %s\naccept_language = zh-CN,zh;q=0.9,en;q=0.8\naccept_encoding = gzip, deflate, br\nrequest_delay = %d\nrandom_delay_range = %d\nmax_concurrent = 1\nmax_retries = 3\nretry_delay = 15\ntimeout = 30\n\n[tiku]\ndisable = true\n' \
+                  "${{ secrets[format('USERNAME{0}', matrix.account)] }}" \
+                  "${{ secrets[format('PASSWORD{0}', matrix.account)] }}" \
+                  $(( pause_min * 60 )) \
+                  $(( pause_max * 60 )) \
+                  $replay_chance \
+                  "$user_agent" \
+                  $request_delay \
+                  $random_delay_range > "config_${{ matrix.account }}.ini"
+              else
+                echo "❌ 达到最大重试次数，任务失败"
+                echo "LOG_FILE=$LOG_FILE" >> $GITHUB_ENV
+              fi
+            fi
+          done
+          if [ $SUCCESS -eq 0 ]; then
+            exit 1
+          fi
+      - name: 上传日志（无论成功或失败）
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-account-${{ matrix.account }}
+          path: "study_log_account_${{ matrix.account }}_*.txt"
+          retention-days: 7
+
+  Summary:
+    runs-on: ubuntu-latest
+    needs: MultiAccountStudy
+    if: always()
+    steps:
+      - name: 任务执行总结
+        run: |
+          echo "三账号学习任务执行完成"
+          echo "执行时间: $(date)"
+          echo "各账号启动延迟:"
+          echo "- 账号1: 0 分钟"
+          echo "- 账号2: 17 分钟"
+          
