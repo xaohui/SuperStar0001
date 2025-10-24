@@ -47,7 +47,7 @@ jobs:
             2) user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0" ;;
           esac
           # 使用printf写入配置文件避免heredoc的YAML解析问题
-          printf '[common]\nusername = %s\npassword = %s\ncourse_list = 255731372\nspeed = 1.0\nnotopen_action = continue\n\n[behavior]\nrandom_pause = true\npause_min_interval = %d\npause_max_interval = %d\nreplay_chance = %d\n\n[network]\nuser_agent = %s\naccept_language = zh-CN,zh;q=0.9,en;q=0.8\naccept_encoding = gzip, deflate, br\nrequest_delay = %d\nrandom_delay_range = %d\nmax_concurrent = 1\nmax_retries = 3\nretry_delay = 10\ntimeout = 30\n\n[tiku]\ndisable = true\n' \
+          printf '[common]\nusername = %s\npassword = %s\ncourse_list = 255238485\nspeed = 1.0\nnotopen_action = continue\n\n[behavior]\nrandom_pause = true\npause_min_interval = %d\npause_max_interval = %d\nreplay_chance = %d\n\n[network]\nuser_agent = %s\naccept_language = zh-CN,zh;q=0.9,en;q=0.8\naccept_encoding = gzip, deflate, br\nrequest_delay = %d\nrandom_delay_range = %d\nmax_concurrent = 1\nmax_retries = 3\nretry_delay = 10\ntimeout = 30\n\n[tiku]\ndisable = true\n' \
             "${{ secrets[format('USERNAME{0}', matrix.account)] }}" \
             "${{ secrets[format('PASSWORD{0}', matrix.account)] }}" \
             $(( pause_min * 60 )) \
@@ -108,7 +108,7 @@ jobs:
                 random_delay_range=$(( (RANDOM % 3) + 2 ))
                 
                 # 使用printf重新创建配置文件
-                printf '[common]\nusername = %s\npassword = %s\ncourse_list = 255731372\nspeed = 1.0\nnotopen_action = continue\n\n[behavior]\nrandom_pause = true\npause_min_interval = %d\npause_max_interval = %d\nreplay_chance = %d\n\n[network]\nuser_agent = %s\naccept_language = zh-CN,zh;q=0.9,en;q=0.8\naccept_encoding = gzip, deflate, br\nrequest_delay = %d\nrandom_delay_range = %d\nmax_concurrent = 1\nmax_retries = 3\nretry_delay = 15\ntimeout = 30\n\n[tiku]\ndisable = true\n' \
+                printf '[common]\nusername = %s\npassword = %s\ncourse_list = 255238485\nspeed = 1.0\nnotopen_action = continue\n\n[behavior]\nrandom_pause = true\npause_min_interval = %d\npause_max_interval = %d\nreplay_chance = %d\n\n[network]\nuser_agent = %s\naccept_language = zh-CN,zh;q=0.9,en;q=0.8\naccept_encoding = gzip, deflate, br\nrequest_delay = %d\nrandom_delay_range = %d\nmax_concurrent = 1\nmax_retries = 3\nretry_delay = 15\ntimeout = 30\n\n[tiku]\ndisable = true\n' \
                   "${{ secrets[format('USERNAME{0}', matrix.account)] }}" \
                   "${{ secrets[format('PASSWORD{0}', matrix.account)] }}" \
                   $(( pause_min * 60 )) \
