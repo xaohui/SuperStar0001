@@ -10,12 +10,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        account: [6]
+        account: [6,7]
         include:
           - account: 6
             delay: 0
-         # - account: 2
-            #delay: 17
+          - account: 7
+            delay: 17
           #- account: 3
             #delay: 33
       max-parallel: 3
